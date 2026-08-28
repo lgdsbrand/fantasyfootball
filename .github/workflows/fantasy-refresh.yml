@@ -1,0 +1,38 @@
+name: Fantasy data refresh
+
+on:
+  schedule:
+    - cron: "20 8 * * *"      # 08:20 UTC daily — player index, values, news
+    - cron: "0 */4 * * 2-4"   # every 4h Tue-Thu — values move most midweek
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Refresh one dataset only"
+        required: false
+        type: choice
+        options: ["", players, values, projections, news]
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen || uv sync
+
+      - name: Refresh
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FANTASY_SEASON: ${{ vars.FANTASY_SEASON || '2026' }}
+        run: uv run python scripts/refresh_fantasy_data.py ${{ inputs.only && format('--only {0}', inputs.only) || '' }}

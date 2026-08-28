@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   Design tokens — Tailwind v4 is CSS-first, so this @theme block IS the
+   config. There is no tailwind.config.js.
+
+   To match the main site's branding, change these values and nothing else.
+   Every colour in every component resolves through them.
+   ========================================================================== */
+@theme {
+  --color-ink: #080b10;
+  --color-deck: #111821;
+  --color-deck2: #172029;
+  --color-line: #1f2b37;
+  --color-chalk: #e9eff5;
+  --color-fog: #78899c;
+
+  --color-turf: #27e08a;
+  --color-sky: #38d6ff;
+  --color-flag: #f2b23c;
+  --color-whistle: #ff5c5c;
+
+  --font-display: "Saira Condensed", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+html {
+  background: var(--color-ink);
+}
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  color: var(--color-chalk);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Faint yard-line wash. Purely atmospheric, and the only decoration. */
+.field-wash {
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgb(39 224 138 / 0.028) 0 1px,
+    transparent 1px 96px
+  );
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Yard-marker eyebrow, used above every section heading. */
+.hash::before {
+  content: "";
+  display: block;
+  width: 22px;
+  height: 9px;
+  flex: none;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--color-turf) 0 2px,
+    transparent 2px 6px
+  );
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: var(--color-line); border-radius: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
