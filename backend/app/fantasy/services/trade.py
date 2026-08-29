@@ -112,7 +112,24 @@ def evaluate(
                 "detail": f"incoming average age {ain}, outgoing {aout}",
             })
 
+    def row(card, side):
+        return {
+            "side": side,
+            "name": card.name,
+            "position": card.position,
+            "team": card.team,
+            "age": card.age,
+            "value": card.value,
+            "season_projection": card.season_projection,
+            "week_projection": card.projection,
+            "position_rank": card.position_rank,
+            "trend_30d": card.trend_30d,
+        }
+
+    stat_table = [row(c, "give") for c in give] + [row(c, "receive") for c in receive]
+
     return TradeVerdict(
+        stat_table=stat_table,
         verdict=label,
         confidence=round(confidence, 1),
         net_value=net,

@@ -73,6 +73,28 @@ async def get_projections(season: int, week: int, season_type: str = "regular") 
     )
 
 
+async def get_season_projections(season: int, season_type: str = "regular"):
+    """Season-long projected totals.
+
+    Same undocumented host as the weekly endpoint, without a week. Used for
+    redraft trades, where what matters is the rest of the year rather than
+    Sunday.
+    """
+    return await get_json(
+        f"{S().sleeper_data_base}/projections/nfl/{season}",
+        params={"season_type": season_type, "order_by": "pts_half_ppr"},
+    )
+
+
+async def get_stats(season: int, week: int, season_type: str = "regular"):
+    """Actual points scored in a week — what a player did, not what he might do.
+    This is what 'top producers' has to be built on."""
+    return await get_json(
+        f"{S().sleeper_data_base}/stats/nfl/{season}/{week}",
+        params={"season_type": season_type, "order_by": "pts_half_ppr"},
+    )
+
+
 def slim_player(pid: str, p: dict) -> dict:
     """Cut the 5MB map down to the fields the product actually shows."""
     name = p.get("full_name") or " ".join(

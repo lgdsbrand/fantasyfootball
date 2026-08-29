@@ -11,6 +11,7 @@ import { toQuerySettings } from "./format.js";
 export function useBoard(settings, { includePicks = false, limit = 500 } = {}) {
   const [board, setBoard] = useState([]);
   const [updatedAt, setUpdatedAt] = useState(null);
+  const [week, setWeek] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -28,6 +29,7 @@ export function useBoard(settings, { includePicks = false, limit = 500 } = {}) {
         if (cancelled) return;
         setBoard(data.players || []);
         setUpdatedAt(data.updated_at || null);
+        setWeek(data.week || null);
       })
       .catch((e) => !cancelled && setError(e))
       .finally(() => !cancelled && setLoading(false));
@@ -38,5 +40,5 @@ export function useBoard(settings, { includePicks = false, limit = 500 } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, limit, reloadKey]);
 
-  return { board, updatedAt, loading, error, reload: () => setReloadKey((k) => k + 1) };
+  return { board, updatedAt, week, loading, error, reload: () => setReloadKey((k) => k + 1) };
 }

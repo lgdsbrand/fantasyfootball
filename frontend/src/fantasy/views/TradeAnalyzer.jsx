@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import api from "../lib/api.js";
 import { useBoard } from "../lib/useBoard.js";
 import { num, signed, decimal, toApiSettings } from "../lib/format.js";
-import { Card, Eyebrow, Button, Loading, ErrorNote, Reasoning, Segmented } from "../components/ui.jsx";
+import { Card, Eyebrow, Button, Loading, ErrorNote, Reasoning, Segmented, Pos } from "../components/ui.jsx";
 import PlayerPicker from "../components/PlayerPicker.jsx";
 import PlayerRow from "../components/PlayerRow.jsx";
 
@@ -233,6 +233,58 @@ export default function TradeAnalyzer({ settings, setSettings, roster = [] }) {
                 </div>
               ))}
             </div>
+            {result.stat_table?.length > 0 && (
+              <div className="mt-5 -mx-1 overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr>
+                      {["", "Player", "Pos", "Value", "Season proj", "Pos rank", "30d"].map((h, i) => (
+                        <th
+                          key={h + i}
+                          className={`font-mono text-[9.5px] tracking-wider uppercase text-fog font-medium px-2.5 pb-2.5 whitespace-nowrap ${
+                            i > 2 ? "text-right" : "text-left"
+                          }`}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.stat_table.map((r, i) => (
+                      <tr key={i} className="border-t border-line/60">
+                        <td className="px-2.5 py-2">
+                          <span
+                            className={`font-mono text-[9px] tracking-wider uppercase ${
+                              r.side === "receive" ? "text-turf" : "text-whistle"
+                            }`}
+                          >
+                            {r.side === "receive" ? "in" : "out"}
+                          </span>
+                        </td>
+                        <td className="px-2.5 py-2 text-[13px] font-semibold">{r.name}</td>
+                        <td className="px-2.5 py-2"><Pos position={r.position} /></td>
+                        <td className="num px-2.5 py-2 text-right text-[13px]">{num(r.value)}</td>
+                        <td className="num px-2.5 py-2 text-right text-[13px] text-sky">
+                          {r.season_projection == null ? "—" : decimal(r.season_projection)}
+                        </td>
+                        <td className="num px-2.5 py-2 text-right text-xs text-fog">
+                          {r.position ? `${r.position}${r.position_rank ?? ""}` : "—"}
+                        </td>
+                        <td
+                          className={`num px-2.5 py-2 text-right text-xs ${
+                            r.trend_30d > 0 ? "text-turf" : r.trend_30d < 0 ? "text-whistle" : "text-fog"
+                          }`}
+                        >
+                          {r.trend_30d > 0 ? "+" : ""}{num(r.trend_30d)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             <Reasoning text={result.reasoning} />
             {!result.reasoning && (
               <p className="text-fog text-xs mt-4 border-l-2 border-line pl-4">

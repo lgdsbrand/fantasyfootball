@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "../lib/api.js";
 import { num, decimal } from "../lib/format.js";
+import { useBoard } from "../lib/useBoard.js";
 import { Card, Eyebrow, Button, Field, Loading, ErrorNote, Empty, Reasoning, Pos } from "../components/ui.jsx";
 
 /** 1st, 2nd, 3rd, 4th — including the 11th–13th exceptions. */
@@ -9,6 +10,139 @@ function ordinal(n) {
   const tens = n % 100;
   if (tens >= 11 && tens <= 13) return `${n}th`;
   return n + ({ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th");
+}
+
+/** Every team in the league, expandable. The data already comes back from
+ *  /league/{id}, it just was not being shown. */
+function LeagueTable({ league, board }) {
+  const [openId, setOpenId] = useState(null);
+  const byId = useMemo(
+    () => Object.fromEntries((board || []).map((p) => [p.sleeper_id, p])),
+    [board]
+  );
+
+  // Rank by points scored, falling back to wins before a season has started.
+  const teams = useMemo(
+    () => [...(league.teams || [])].sort(
+      (a, b) => (b.points_for - a.points_for) || (b.wins - a.wins)
+    ),
+    [league]
+  );
+
+  return (
+    <Card className="mt-3.5">
+      <Eyebrow right={`${teams.length} teams`}>The league</Eyebrow>
+      <div className="divide-y divide-line">
+        {teams.map((t, i) => {
+          const players = (t.players || [])
+            .map((id) => byId[id])
+            .filter(Boolean)
+            .sort((a, b) => (b.value || 0) - (a.value || 0));
+          const total = players.reduce((n, p) => n + (p.value || 0), 0);
+          const isOpen = openId === t.roster_id;
+
+          return (
+            <div key={t.roster_id}>
+              <button
+                onClick={() => setOpenId(isOpen ? null : t.roster_id)}
+                className="w-full flex items-center gap-3 py-3 text-left cursor-pointer hover:opacity-80 transition-opacity"
+              >
+                <span className="num text-fog text-xs w-5">{i + 1}</span>
+                <div className="min-w-0">
+                  <p className={`text-sm font-semibold truncate ${t.is_mine ? "text-turf" : ""}`}>
+                    {t.owner}{t.is_mine ? " (you)" : ""}
+                  </p>
+                  <p className="font-mono text-[10px] text-fog mt-0.5">
+                    {t.wins}–{t.losses} · {num(t.points_for)} pts · {(t.players || []).length} players
+                  </p>
+                </div>
+                <span className="num text-sm ml-auto">{num(total)}</span>
+                <span className={`text-fog text-xs transition-transform ${isOpen ? "rotate-90" : ""}`}>›</span>
+              </button>
+
+              {isOpen && (
+                <div className="pb-3 pl-8 flex flex-col gap-1.5">
+                  {players.length === 0 && (
+                    <p className="text-fog text-xs py-2">No drafted players yet.</p>
+                  )}
+                  {players.map((p) => (
+                    <div key={p.sleeper_id} className="flex items-center gap-2.5">
+                      <Pos position={p.position} />
+                      <span className="text-[13px] truncate">{p.name}</span>
+                      <span className="font-mono text-[10px] text-fog">{p.team}</span>
+                      <span className="num text-xs text-fog ml-auto">{num(p.value)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-fog text-xs mt-4 leading-relaxed">
+        Totals are the sum of every rostered player's trade value — a rough measure
+        of talent held, not of how the season is going.
+      </p>
+    </Card>
+  );
+}
+
+/** Playoff odds from the simulation. Shown as a bar because a percentage on
+ *  its own invites false precision — the shape of the field is the point. */
+function PlayoffOdds({ leagueId }) {
+  const [data, setData] = useState(null);
+  const [state, setState] = useState("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    api.playoffOdds(leagueId)
+      .then((d) => !cancelled && (setData(d), setState("ready")))
+      .catch(() => !cancelled && setState("unavailable"));
+    return () => { cancelled = true; };
+  }, [leagueId]);
+
+  if (state === "loading") return null;
+  if (state === "unavailable") return null;
+
+  return (
+    <Card className="mt-3.5">
+      <Eyebrow right={`${data.playoff_spots} spots · ${data.simulations.toLocaleString()} sims`}>
+        Playoff odds
+      </Eyebrow>
+      <div className="flex flex-col gap-2.5">
+        {data.teams.map((t) => (
+          <div key={t.roster_id} className="flex items-center gap-3">
+            <span className="text-[13px] truncate w-28 shrink-0">{t.owner}</span>
+            <span className="num text-[10px] text-fog w-12 shrink-0">
+              {t.wins}–{t.losses}
+            </span>
+            <div className="flex-1 h-1.5 rounded-full bg-line overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{
+                  width: `${Math.max(1.5, t.playoff_odds)}%`,
+                  background:
+                    t.playoff_odds >= 66 ? "var(--color-turf)"
+                    : t.playoff_odds >= 25 ? "var(--color-flag)"
+                    : "var(--color-whistle)",
+                }}
+              />
+            </div>
+            <span className="num text-xs w-12 text-right">{t.playoff_odds}%</span>
+            <span className="num text-[10px] text-fog w-14 text-right hidden sm:block">
+              {t.projected_wins} W
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="text-fog text-xs mt-4 leading-relaxed">
+        Each team is simulated on its own scoring so far, playing out its actual
+        remaining schedule {data.simulations.toLocaleString()} times. Early in a
+        season there is little history to go on, so the numbers lean toward the
+        league average until real scores accumulate.
+      </p>
+    </Card>
+  );
 }
 
 function GradeRing({ grade, score }) {
@@ -40,6 +174,7 @@ export default function LeagueHub({ league, setLeague, settings, setSettings, se
   const [grade, setGrade] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const { board } = useBoard(settings, { limit: 500 });
 
   async function sync() {
     if (!username.trim()) return;
@@ -257,6 +392,10 @@ export default function LeagueHub({ league, setLeague, settings, setSettings, se
               <Reasoning title="What this says" text={grade.summary} />
             </Card>
           )}
+
+          <PlayoffOdds leagueId={league.league.league_id} />
+
+          <LeagueTable league={league} board={board} />
         </>
       )}
 

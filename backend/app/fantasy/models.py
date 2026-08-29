@@ -26,6 +26,9 @@ class PlayerCard(BaseModel):
     position_rank: Optional[int] = None
     trend_30d: int = 0
     projection: Optional[float] = None
+    # Season-long projected total. Weekly answers "start him?"; season answers
+    # "is this trade good?" — redraft trades turn on the rest of the year.
+    season_projection: Optional[float] = None
     injury_status: Optional[str] = None
 
 
@@ -59,6 +62,9 @@ class TradeVerdict(BaseModel):
     starter_points_delta: Optional[float] = None
     factors: list[dict] = Field(default_factory=list)
     reasoning: Optional[str] = None
+    # Per-player numbers behind the verdict, so the manager can see the inputs
+    # rather than only the conclusion.
+    stat_table: list[dict] = Field(default_factory=list)
     # True when an AI provider is configured. Lets the UI distinguish "no key"
     # from "the provider was called and failed" — very different fixes.
     ai_available: bool = False

@@ -102,11 +102,23 @@ def _chunks(rows: list[dict], n: int) -> Iterable[list[dict]]:
 # --- convenience readers used by the services -------------------------------
 
 async def players_by_id(sleeper_ids: list[str]) -> dict[str, dict]:
+    """Look up players by id, in chunks.
+
+    Every id goes into the query string, so a few hundred at once produces a URL
+    long enough for Supabase to reject. Chunking keeps each request small; the
+    caller sees one dict either way.
+    """
     if not sleeper_ids:
         return {}
-    ids = ",".join(f'"{i}"' for i in sleeper_ids)
-    rows = await select("ff_players", filters={"sleeper_id": f"in.({ids})"})
-    return {r["sleeper_id"]: r for r in rows}
+    out: dict[str, dict] = {}
+    unique = list(dict.fromkeys(str(i) for i in sleeper_ids))
+    for i in range(0, len(unique), 150):
+        chunk = unique[i : i + 150]
+        ids = ",".join(f'"{x}"' for x in chunk)
+        rows = await select("ff_players", filters={"sleeper_id": f"in.({ids})"})
+        for r in rows:
+            out[r["sleeper_id"]] = r
+    return out
 
 
 async def values_for(fmt: str, sleeper_ids: Optional[list[str]] = None) -> dict[str, dict]:

@@ -30,7 +30,7 @@ from .models import (
     TradeRequest,
     TradeVerdict,
 )
-from .services import ai, draft, news, roster as roster_svc, trade as trade_svc
+from .services import ai, draft, news, playoffs, roster as roster_svc, trade as trade_svc
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/fantasy", tags=["fantasy"])
@@ -65,9 +65,12 @@ async def _cards(ids: list[str], fmt: str, week: Optional[int] = None) -> dict[s
         return {}
     players = await store.players_by_id(ids)
     values = await store.values_for(fmt, ids)
+    season = get_settings().season
     projs: dict[str, float] = {}
     if week:
-        projs = await store.projections(get_settings().season, week, ids)
+        projs = await store.projections(season, week, ids)
+    # Week 0 holds season totals.
+    season_projs = await store.projections(season, 0, ids)
 
     out: dict[str, PlayerCard] = {}
     for pid in ids:
@@ -84,6 +87,7 @@ async def _cards(ids: list[str], fmt: str, week: Optional[int] = None) -> dict[s
             position_rank=v.get("position_rank"),
             trend_30d=int(v.get("trend_30d") or 0),
             projection=projs.get(pid),
+            season_projection=season_projs.get(pid),
             injury_status=p.get("injury_status"),
         )
     return out
@@ -185,6 +189,20 @@ async def rankings(
     fmt = format_key(is_dynasty, num_qbs, ppr, num_teams)
     rows = await store.board(fmt, limit=500 if (position or not include_picks) else limit)
 
+    # Attach this week's projection to each row. One extra query for the whole
+    # board rather than one per player, and a miss just leaves the field null.
+    week = None
+    try:
+        week = int((await sleeper.get_state()).get("week") or 0) or None
+    except UpstreamError:
+        pass
+    if week and rows:
+        projs = await store.projections(
+            get_settings().season, week, [r["sleeper_id"] for r in rows]
+        )
+        for r in rows:
+            r["projection"] = projs.get(r["sleeper_id"])
+
     # Draft picks are priced by FantasyCalc and belong in the trade calculator,
     # but a rankings board is a list of players — picks only show if asked for.
     if not include_picks and (position or "").upper() != "PICK":
@@ -195,6 +213,7 @@ async def rankings(
 
     return {
         "format": fmt,
+        "week": week,
         "updated_at": await store.values_updated_at(fmt),
         "players": rows,
     }
@@ -356,6 +375,163 @@ async def draft_suggest(body: DraftSuggestRequest):
         limit=body.limit,
     )
     return {"available_count": len(available), "suggestions": picks}
+
+
+# --------------------------------------------------------------------------
+# top producers
+# --------------------------------------------------------------------------
+
+@router.get("/top-producers")
+async def top_producers(
+    week: Optional[int] = Query(None, description="defaults to the last completed week"),
+    per_position: int = Query(5, le=10),
+):
+    """Highest scorers at each position.
+
+    In season this is actual points from the last completed week. Before the
+    season starts there are no scores to rank, so it falls back to season
+    projections and says so — an empty page teaches the visitor nothing, and a
+    projected leaderboard labelled as actual would be a lie.
+    """
+    season = get_settings().season
+
+    state = {}
+    try:
+        state = await sleeper.get_state() or {}
+    except UpstreamError:
+        pass
+    in_season = (state.get("season_type") or "").lower() == "regular"
+
+    rows: list[dict] = []
+    source = "projected"
+    resolved_week = None
+
+    # No embedded join here: ff_projections and ff_stats have no foreign key to
+    # ff_players, so PostgREST cannot resolve the relationship. Two small
+    # queries and a dict lookup is simpler than adding constraints to a
+    # production database for a read that runs once per page load.
+    if in_season:
+        resolved_week = week or max(1, int(state.get("week") or 1) - 1)
+        rows = await store.select(
+            "ff_stats",
+            columns="sleeper_id,points",
+            filters={"season": f"eq.{season}", "week": f"eq.{resolved_week}",
+                     "points": "gt.0"},
+            order="points.desc", limit=300,
+        )
+        if rows:
+            source = "actual"
+
+    if not rows:
+        rows = await store.select(
+            "ff_projections",
+            columns="sleeper_id,points",
+            filters={"season": f"eq.{season}", "week": "eq.0", "points": "gt.0"},
+            order="points.desc", limit=300,
+        )
+        source = "projected"
+        resolved_week = None
+
+    players = await store.players_by_id([r["sleeper_id"] for r in rows])
+
+    buckets: dict[str, list[dict]] = {}
+    for r in rows:
+        p = players.get(r["sleeper_id"])
+        if not p:
+            continue
+        pos = (p.get("position") or "").upper()
+        if pos not in {"QB", "RB", "WR", "TE"}:
+            continue
+        bucket = buckets.setdefault(pos, [])
+        if len(bucket) < per_position:
+            bucket.append({
+                "sleeper_id": r["sleeper_id"],
+                "name": p.get("name"),
+                "team": p.get("team"),
+                "position": pos,
+                "points": round(float(r["points"]), 1),
+            })
+
+    return {
+        "season": season,
+        "week": resolved_week,
+        "source": source,          # "actual" or "projected"
+        "season_type": state.get("season_type"),
+        "positions": [
+            {"position": pos, "players": buckets.get(pos, [])}
+            for pos in ("QB", "RB", "WR", "TE")
+        ],
+    }
+
+
+# --------------------------------------------------------------------------
+# playoff odds
+# --------------------------------------------------------------------------
+
+@router.get("/playoff-odds/{league_id}")
+async def playoff_odds(league_id: str, runs: int = Query(4000, ge=500, le=20000)):
+    """Simulate the rest of the season and report each team's chance of making
+    the playoffs."""
+    league = await sleeper.get_league(league_id)
+    if not league:
+        raise HTTPException(404, "league not found")
+
+    settings = league.get("settings") or {}
+    rosters = await sleeper.get_rosters(league_id)
+    users = await sleeper.get_league_users(league_id)
+    owners = {u["user_id"]: u.get("display_name") for u in users}
+
+    try:
+        current_week = int((await sleeper.get_state()).get("week") or 1)
+    except UpstreamError:
+        current_week = 1
+
+    playoff_week = int(settings.get("playoff_week_start") or 15)
+    if current_week >= playoff_week:
+        raise HTTPException(409, "the regular season is over — odds no longer apply")
+
+    # Weekly scores so far, so each team is modelled on its own scoring.
+    scores: dict[int, list[float]] = {r["roster_id"]: [] for r in rosters}
+    schedule: dict[int, list[tuple[int, int]]] = {}
+
+    for w in range(1, playoff_week):
+        try:
+            matchups = await sleeper.get_matchups(league_id, w)
+        except UpstreamError:
+            continue
+        pairs: dict[int, list[int]] = {}
+        for m in matchups:
+            mid, rid = m.get("matchup_id"), m.get("roster_id")
+            if mid is None or rid is None:
+                continue
+            pairs.setdefault(mid, []).append(rid)
+            if w < current_week and m.get("points"):
+                scores.setdefault(rid, []).append(float(m["points"]))
+        if w >= current_week:
+            schedule[w] = [tuple(v) for v in pairs.values() if len(v) == 2]
+
+    teams = [
+        playoffs.Team(
+            roster_id=r["roster_id"],
+            owner=owners.get(r.get("owner_id"), "Unclaimed"),
+            wins=(r.get("settings") or {}).get("wins", 0),
+            losses=(r.get("settings") or {}).get("losses", 0),
+            ties=(r.get("settings") or {}).get("ties", 0),
+            points_for=float((r.get("settings") or {}).get("fpts", 0) or 0),
+            weekly_scores=scores.get(r["roster_id"], []),
+        )
+        for r in rosters
+    ]
+
+    spots = int(settings.get("playoff_teams") or max(2, len(teams) // 2))
+    return {
+        "league": league.get("name"),
+        "playoff_spots": spots,
+        "playoff_week_start": playoff_week,
+        "current_week": current_week,
+        "simulations": runs,
+        "teams": playoffs.simulate(teams, schedule, spots, runs=runs),
+    }
 
 
 # --------------------------------------------------------------------------

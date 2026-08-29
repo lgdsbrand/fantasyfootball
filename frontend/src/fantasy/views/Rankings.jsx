@@ -9,6 +9,7 @@ const COLUMNS = [
   { key: "name", label: "Player", align: "left" },
   { key: "position", label: "Pos", align: "left" },
   { key: "team", label: "Team", align: "left" },
+  { key: "projection", label: "Proj", align: "right" },
   { key: "value", label: "Value", align: "right" },
   { key: "redraft_value", label: "Redraft", align: "right" },
   { key: "trend_30d", label: "30d", align: "right" },
@@ -17,7 +18,7 @@ const COLUMNS = [
 export default function Rankings({ settings, setSettings }) {
   const [position, setPosition] = useState("ALL");
   const [sort, setSort] = useState({ key: "overall_rank", dir: 1 });
-  const { board, updatedAt, loading, error, reload } = useBoard(settings);
+  const { board, updatedAt, week, loading, error, reload } = useBoard(settings);
 
   const rows = useMemo(() => {
     const filtered =
@@ -75,7 +76,12 @@ export default function Rankings({ settings, setSettings }) {
 
       <Card className="p-0 overflow-hidden">
         <div className="px-5 pt-5">
-          <Eyebrow right={updatedAt ? `updated ${timeAgo(updatedAt)}` : null}>
+          <Eyebrow
+            right={[
+              week ? `proj = week ${week}` : null,
+              updatedAt ? `updated ${timeAgo(updatedAt)}` : null,
+            ].filter(Boolean).join(" · ")}
+          >
             {rows.length} players
           </Eyebrow>
         </div>
@@ -109,6 +115,9 @@ export default function Rankings({ settings, setSettings }) {
                   </td>
                   <td className="px-3 py-2.5"><Pos position={p.position} /></td>
                   <td className="num px-3 py-2.5 text-fog text-xs">{p.team || "—"}</td>
+                  <td className="num px-3 py-2.5 text-right text-sm text-sky">
+                    {p.projection == null ? "—" : decimal(p.projection)}
+                  </td>
                   <td className="num px-3 py-2.5 text-right text-sm">{num(p.value)}</td>
                   <td className="num px-3 py-2.5 text-right text-fog text-xs">
                     {num(p.redraft_value)}

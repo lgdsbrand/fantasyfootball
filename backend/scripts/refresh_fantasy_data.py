@@ -149,6 +149,68 @@ async def refresh_projections() -> None:
     log.info("projections week %s: %s rows", week, n)
 
 
+async def refresh_season_projections() -> None:
+    """Season-long projected totals, stored under week 0."""
+    s = get_settings()
+    try:
+        raw = await sleeper.get_season_projections(s.season)
+    except Exception as e:                           # noqa: BLE001
+        log.warning("season projections unavailable: %s", e)
+        return
+
+    rows = []
+    for item in raw or []:
+        pid = str(item.get("player_id") or "")
+        stats = item.get("stats") or {}
+        pts = stats.get("pts_half_ppr") or stats.get("pts_ppr") or stats.get("pts_std")
+        if pid and pts is not None:
+            rows.append({"sleeper_id": pid, "season": s.season, "week": 0,
+                         "points": float(pts), "updated_at": store.now_iso()})
+    n = await store.upsert("ff_projections", rows, on_conflict="sleeper_id,season,week")
+    log.info("season projections: %s rows", n)
+
+
+async def refresh_stats() -> None:
+    """Actual points scored, for every week played so far this season."""
+    s = get_settings()
+    try:
+        week = int((await sleeper.get_state()).get("week") or 0)
+    except Exception as e:                           # noqa: BLE001
+        log.warning("could not read NFL state: %s", e)
+        return
+    if week < 1:
+        log.info("offseason, no stats to pull")
+        return
+    # Preseason games do not count, and Sleeper returns nothing for them.
+    # Saying so beats logging "0 rows" and looking like a failure.
+    try:
+        season_type = ((await sleeper.get_state()).get("season_type") or "").lower()
+    except Exception:                                # noqa: BLE001
+        season_type = ""
+    if season_type and season_type != "regular":
+        log.info("season type is %r, no regular-season stats yet", season_type)
+        return
+
+    total = 0
+    # Completed weeks only — the current week is still in progress.
+    for w in range(1, week):
+        try:
+            raw = await sleeper.get_stats(s.season, w)
+        except Exception as e:                       # noqa: BLE001
+            log.warning("stats week %s unavailable: %s", w, e)
+            continue
+        rows = []
+        for item in raw or []:
+            pid = str(item.get("player_id") or "")
+            st = item.get("stats") or {}
+            pts = st.get("pts_half_ppr") or st.get("pts_ppr") or st.get("pts_std")
+            if pid and pts is not None:
+                rows.append({"sleeper_id": pid, "season": s.season, "week": w,
+                             "points": float(pts), "updated_at": store.now_iso()})
+        total += await store.upsert("ff_stats", rows, on_conflict="sleeper_id,season,week")
+    log.info("stats through week %s: %s rows", week - 1, total)
+
+
 async def refresh_news(players: dict[str, dict] | None = None) -> None:
     if players is None:
         players = {r["sleeper_id"]: r for r in await store.select(
@@ -171,7 +233,7 @@ async def refresh_news(players: dict[str, dict] | None = None) -> None:
 
 async def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--only", choices=["players", "values", "projections", "news"])
+    ap.add_argument("--only", choices=["players", "values", "projections", "stats", "news"])
     args = ap.parse_args()
 
     if not get_settings().supabase_ready:
@@ -187,6 +249,9 @@ async def main() -> int:
             await refresh_values()
         if args.only in (None, "projections"):
             await refresh_projections()
+            await refresh_season_projections()
+        if args.only in (None, "stats"):
+            await refresh_stats()
         if args.only in (None, "news"):
             await refresh_news(players)
     except Exception:                                # noqa: BLE001

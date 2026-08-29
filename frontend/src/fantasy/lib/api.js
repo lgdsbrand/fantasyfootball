@@ -73,6 +73,12 @@ export const api = {
 
   draftSuggest: (body) => call(http.post("/api/fantasy/draft/suggest", body)),
 
+  topProducers: (week) =>
+    call(http.get("/api/fantasy/top-producers", { params: week ? { week } : {} })),
+
+  playoffOdds: (leagueId) =>
+    call(http.get(`/api/fantasy/playoff-odds/${leagueId}`)),
+
   news: (limit = 20) => call(http.get("/api/fantasy/news", { params: { limit } })),
 
   // Signed-in only. The bearer token is attached by the interceptor above.
