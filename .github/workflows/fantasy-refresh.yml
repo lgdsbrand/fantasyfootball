@@ -3,7 +3,7 @@ name: Fantasy data refresh
 on:
   schedule:
     - cron: "20 8 * * *"      # 08:20 UTC daily — player index, values, news
-    - cron: "0 */4 * * 2-4"   # every 4h Tue-Thu — values move most midweek
+    - cron: "0 */4 * * 2-4"   # every 4h Tue–Thu — values move most midweek
   workflow_dispatch:
     inputs:
       only:
@@ -15,24 +15,33 @@ on:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
         with:
-          enable-cache: true
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
 
-      - name: Sync dependencies
-        run: uv sync --frozen || uv sync
+      # Same requirements.txt Render installs, so the scheduled job and the
+      # deployed service can never drift apart.
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
       - name: Refresh
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           FANTASY_SEASON: ${{ vars.FANTASY_SEASON || '2026' }}
-        run: uv run python scripts/refresh_fantasy_data.py ${{ inputs.only && format('--only {0}', inputs.only) || '' }}
+        run: |
+          if [ -n "${{ inputs.only }}" ]; then
+            python scripts/refresh_fantasy_data.py --only "${{ inputs.only }}"
+          else
+            python scripts/refresh_fantasy_data.py
+          fi
