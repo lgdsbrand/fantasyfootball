@@ -9,6 +9,11 @@ import { supabase, isAuthConfigured } from "./supabase.js";
 export function useAuth() {
   const [user, setUser] = useState(null);
   const [ready, setReady] = useState(!isAuthConfigured);
+  // Set when the visitor arrives from a password reset email. Supabase signs
+  // them in with a short-lived recovery session and fires this event, which is
+  // the only reliable signal that they should be shown a "set a new password"
+  // form rather than the normal signed-in view.
+  const [recovering, setRecovering] = useState(false);
 
   useEffect(() => {
     if (!supabase) return;
@@ -27,15 +32,18 @@ export function useAuth() {
       setReady(true);
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) =>
-      store(session)
-    );
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      store(session);
+      if (event === "PASSWORD_RECOVERY") setRecovering(true);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
   return {
     user,
     ready,
+    recovering,
+    endRecovery: () => setRecovering(false),
     configured: isAuthConfigured,
     signOut: () => supabase?.auth.signOut(),
   };

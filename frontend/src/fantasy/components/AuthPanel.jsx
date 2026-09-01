@@ -10,7 +10,7 @@ import { Button, Field, Eyebrow } from "./ui.jsx";
  * for — so the copy says that rather than pretending an account unlocks features.
  */
 export default function AuthPanel({ onClose }) {
-  const [mode, setMode] = useState("password");   // password | link
+  const [mode, setMode] = useState("password");   // password | link | reset
   const [isNew, setIsNew] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -23,7 +23,15 @@ export default function AuthPanel({ onClose }) {
     setError(null);
     setNote(null);
     try {
-      if (mode === "link") {
+      if (mode === "reset") {
+        // Supabase sends a recovery link; clicking it returns here with a
+        // short-lived session, which useAuth turns into the new-password form.
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: window.location.origin,
+        });
+        if (error) throw error;
+        setNote(`If there's an account for ${email}, a reset link is on its way.`);
+      } else if (mode === "link") {
         const { error } = await supabase.auth.signInWithOtp({
           email,
           options: { emailRedirectTo: window.location.origin },
@@ -46,12 +54,19 @@ export default function AuthPanel({ onClose }) {
     }
   }
 
-  const canSubmit = email.includes("@") && (mode === "link" || password.length >= 6);
+  const canSubmit =
+    email.includes("@") && (mode !== "password" || password.length >= 6);
 
   return (
     <div className="bg-deck border border-line rounded-xl p-5">
       <Eyebrow right={onClose ? <button onClick={onClose} className="cursor-pointer hover:text-chalk">close</button> : null}>
-        {mode === "link" ? "Email a sign-in link" : isNew ? "Create an account" : "Sign in"}
+        {mode === "reset"
+          ? "Reset your password"
+          : mode === "link"
+          ? "Email a sign-in link"
+          : isNew
+          ? "Create an account"
+          : "Sign in"}
       </Eyebrow>
 
       <div className="flex flex-col gap-2.5">
@@ -75,6 +90,8 @@ export default function AuthPanel({ onClose }) {
         <Button onClick={submit} disabled={!canSubmit || busy}>
           {busy
             ? "Working…"
+            : mode === "reset"
+            ? "Send reset link"
             : mode === "link"
             ? "Send me a link"
             : isNew
@@ -87,7 +104,7 @@ export default function AuthPanel({ onClose }) {
       {error && <p className="text-whistle text-xs mt-3">{error}</p>}
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-4 pt-3 border-t border-line text-xs">
-        {mode === "password" ? (
+        {mode === "password" && (
           <>
             <button
               onClick={() => setIsNew((v) => !v)}
@@ -95,19 +112,28 @@ export default function AuthPanel({ onClose }) {
             >
               {isNew ? "I already have an account" : "Create an account"}
             </button>
+            {!isNew && (
+              <button
+                onClick={() => { setMode("reset"); setError(null); setNote(null); }}
+                className="text-fog hover:text-chalk cursor-pointer"
+              >
+                Forgot your password?
+              </button>
+            )}
             <button
-              onClick={() => { setMode("link"); setError(null); }}
+              onClick={() => { setMode("link"); setError(null); setNote(null); }}
               className="text-fog hover:text-chalk cursor-pointer"
             >
               Email me a link instead
             </button>
           </>
-        ) : (
+        )}
+        {mode !== "password" && (
           <button
-            onClick={() => { setMode("password"); setError(null); }}
+            onClick={() => { setMode("password"); setError(null); setNote(null); }}
             className="text-fog hover:text-chalk cursor-pointer"
           >
-            Use a password instead
+            Back to sign in
           </button>
         )}
       </div>

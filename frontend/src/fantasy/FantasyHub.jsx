@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useAuth } from "./lib/useAuth.js";
 import AuthPanel from "./components/AuthPanel.jsx";
+import NewPassword from "./components/NewPassword.jsx";
 import Nav from "./components/Nav.jsx";
 import { DEFAULT_SETTINGS } from "./lib/format.js";
 import Home from "./views/Home.jsx";
+import Profile from "./views/Profile.jsx";
 import LeagueHub from "./views/LeagueHub.jsx";
 import TradeAnalyzer from "./views/TradeAnalyzer.jsx";
 import Rankings from "./views/Rankings.jsx";
@@ -17,10 +19,11 @@ const NAV = [
   { id: "hub", label: "League Hub" },
   { id: "trade", label: "Trade Analyzer", tag: "AI" },
   { id: "ranks", label: "Player Ranks" },
-  { id: "draft", label: "Draft Helper" },
+  { id: "draft", label: "Draft Assistant" },
   { id: "sitstart", label: "Sit / Start" },
   { id: "rookies", label: "Dynasty Rookies" },
   { id: "buzz", label: "What's Going On Now" },
+  { id: "profile", label: "Profile" },
 ];
 
 /**
@@ -55,6 +58,14 @@ export default function FantasyHub() {
         onSignIn={() => setShowAuth(true)}
       />
 
+      {auth.recovering && (
+        <div className="fixed inset-0 z-50 bg-ink/80 grid place-items-center p-5">
+          <div className="w-full max-w-sm">
+            <NewPassword onDone={auth.endRecovery} />
+          </div>
+        </div>
+      )}
+
       {showAuth && auth.configured && !auth.user && (
         <div
           className="fixed inset-0 z-50 bg-ink/80 grid place-items-center p-5"
@@ -75,6 +86,7 @@ export default function FantasyHub() {
         {view === "sitstart" && <SitStart {...shared} />}
         {view === "rookies" && <Rookies {...shared} />}
         {view === "buzz" && <Buzz />}
+        {view === "profile" && <Profile auth={auth} setView={setView} />}
       </main>
     </div>
   );
